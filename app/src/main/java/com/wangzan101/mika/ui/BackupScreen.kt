@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.wangzan101.mika.R
 import com.wangzan101.mika.backup.BackupOptions
+import com.wangzan101.mika.backup.BackupCancelled
 import com.wangzan101.mika.backup.BackupRuntime
 import com.wangzan101.mika.backup.BackupStage
 import com.wangzan101.mika.backup.ExportResult
@@ -43,6 +44,7 @@ import com.wangzan101.mika.core.backup.BackupFormat
 import com.wangzan101.mika.core.backup.BackupManifest
 import com.wangzan101.mika.core.backup.ImportReport
 import com.wangzan101.mika.ui.components.ButtonKind
+import com.wangzan101.mika.ui.components.ButtonSize
 import com.wangzan101.mika.ui.components.GroupCard
 import com.wangzan101.mika.ui.components.GroupLabel
 import com.wangzan101.mika.ui.components.ListRow
@@ -105,7 +107,11 @@ fun BackupScreen(onBack: () -> Unit) {
         exported = null
     }
 
-    fun codeOf(t: Throwable): BackupError = (t as? BackupException)?.code ?: BackupError.Corrupt
+    fun codeOf(t: Throwable): BackupError = when (t) {
+        is BackupCancelled -> BackupError.Cancelled
+        is BackupException -> t.code
+        else -> BackupError.Corrupt
+    }
 
     val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -154,6 +160,7 @@ fun BackupScreen(onBack: () -> Unit) {
                 onConfirm = { confirm = it },
                 busy = busy,
                 stage = progress?.stage,
+                onCancel = { runtime.cancel() },
                 onStart = { create.launch("Mika-backup-$stamp.zip") },
             )
             BackupMode.Preview -> BackupPreview(
@@ -162,6 +169,7 @@ fun BackupScreen(onBack: () -> Unit) {
                 onPassphrase = { passphrase = it },
                 busy = busy,
                 stage = progress?.stage,
+                onCancel = { runtime.cancel() },
                 onStart = {
                     val uri = pendingUri
                     if (uri != null) {
@@ -240,6 +248,7 @@ private fun BackupExport(
     onConfirm: (String) -> Unit,
     busy: Boolean,
     stage: BackupStage?,
+    onCancel: () -> Unit,
     onStart: () -> Unit,
 ) {
     val choices = listOf(
@@ -276,7 +285,7 @@ private fun BackupExport(
     } else if (confirm.isNotEmpty() && passphrase != confirm) {
         Hint(stringResource(R.string.backup_passphrase_mismatch))
     }
-    Progress(busy, stage)
+    Progress(busy, stage, onCancel)
     Spacer(Modifier.height(16.dp))
     MikaButton(
         stringResource(R.string.backup_export_to),
@@ -293,6 +302,7 @@ private fun BackupPreview(
     onPassphrase: (String) -> Unit,
     busy: Boolean,
     stage: BackupStage?,
+    onCancel: () -> Unit,
     onStart: () -> Unit,
 ) {
     if (manifest == null) {
@@ -320,9 +330,14 @@ private fun BackupPreview(
         stringResource(if (BackupFormat.SECRETS in manifest.sections) R.string.backup_preview_has_secrets else R.string.backup_preview_no_secrets),
         style = MaterialTheme.typography.bodySmall,
     )
+    Text(
+        stringResource(R.string.backup_preview_counts_unverified),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(top = 4.dp),
+    )
     Spacer(Modifier.height(16.dp))
     PasswordField(stringResource(R.string.backup_passphrase), passphrase, onPassphrase, "backup-restore-passphrase")
-    Progress(busy, stage)
+    Progress(busy, stage, onCancel)
     Spacer(Modifier.height(16.dp))
     MikaButton(
         stringResource(R.string.backup_start_restore),
@@ -362,6 +377,13 @@ private fun ReportContent(report: ImportReport?, hasSnapshot: Boolean, busy: Boo
             style = MaterialTheme.typography.bodySmall,
         )
     }
+    if (report.warnings.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.backup_report_warnings_count, report.warnings.size),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     Spacer(Modifier.height(8.dp))
     Text(stringResource(R.string.backup_restart_hint), style = MaterialTheme.typography.bodyMedium)
     if (hasSnapshot) {
@@ -389,12 +411,17 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun Progress(busy: Boolean, stage: BackupStage?) {
+private fun Progress(busy: Boolean, stage: BackupStage?, onCancel: () -> Unit) {
     if (!busy) return
     LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
     stage?.let {
         Text(stringResource(BackupCopy.stage(it)), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
     }
+    Spacer(Modifier.height(8.dp))
+    MikaButton(
+        stringResource(R.string.cancel), onCancel, Modifier.fillMaxWidth(),
+        kind = ButtonKind.Secondary, size = ButtonSize.Small,
+    )
 }
 
 @Composable
@@ -402,7 +429,7 @@ private fun resultWarnings(warnings: List<String>) {
     if (warnings.isEmpty()) return
     Spacer(Modifier.height(8.dp))
     Text(
-        stringResource(R.string.backup_report_secrets_unavailable, warnings.joinToString(", ")),
+        stringResource(R.string.backup_export_warnings, warnings.joinToString(", ")),
         style = MaterialTheme.typography.bodySmall,
     )
 }

@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">Descomprimiendo…</string>
     <string name="backup_progress_restoring">Restaurando…</string>
     <string name="backup_progress_done">Hecho</string>
+    <string name="backup_error_unreadable">No se pudieron leer algunos datos; no se creó la copia</string>
+    <string name="backup_export_warnings">Estos elementos no se exportaron: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d elementos no coinciden con el manifiesto de la copia</string>
+    <string name="backup_preview_counts_unverified">Estos recuentos se comprobarán al restaurar.</string>
 </resources>

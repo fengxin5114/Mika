@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">Unpacking…</string>
     <string name="backup_progress_restoring">Restoring…</string>
     <string name="backup_progress_done">Done</string>
+    <string name="backup_error_unreadable">Some data could not be read; the backup was not created</string>
+    <string name="backup_export_warnings">These items were not exported: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d items did not match the backup manifest</string>
+    <string name="backup_preview_counts_unverified">These counts will be checked during restore.</string>
 </resources>

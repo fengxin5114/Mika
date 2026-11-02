@@ -5,8 +5,11 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
+import javax.crypto.CipherOutputStream
+import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -46,11 +49,13 @@ object BackupCrypto {
     }
 
     /** 把 [input] 加密写到 [output],返回密文字节数(不含 IV;IV 在 manifest 里)。 */
-    fun encrypt(input: InputStream, output: OutputStream, key: SecretKey, iv: ByteArray, aad: ByteArray): Long {
+    fun encrypt(input: InputStream, output: OutputStream, key: SecretKey, iv: ByteArray, aad: ByteArray,
+        checkCancelled: () -> Unit = {}): Long {
         val cipher = cipher(Cipher.ENCRYPT_MODE, key, iv, aad)
         val buffer = ByteArray(CHUNK)
         var total = 0L
         while (true) {
+            checkCancelled()
             val n = input.read(buffer)
             if (n < 0) break
             if (n == 0) continue
@@ -65,13 +70,22 @@ object BackupCrypto {
         return total
     }
 
+    /**
+     * 边写边加密的流:zip 直接写进 AES-GCM,内层包(含 secrets.json 明文)不落盘。
+     * 调用方关闭返回的流时,CipherOutputStream 会做 doFinal 并写认证标签。
+     */
+    fun encryptingStream(output: OutputStream, key: SecretKey, iv: ByteArray, aad: ByteArray): OutputStream =
+        CipherOutputStream(output, cipher(Cipher.ENCRYPT_MODE, key, iv, aad))
+
     /** 把 [input] 解密写到 [output];口令错或数据被改时抛 [BackupError.BadPassphrase]。 */
-    fun decrypt(input: InputStream, output: OutputStream, key: SecretKey, iv: ByteArray, aad: ByteArray): Long {
+    fun decrypt(input: InputStream, output: OutputStream, key: SecretKey, iv: ByteArray, aad: ByteArray,
+        checkCancelled: () -> Unit = {}): Long {
         val cipher = cipher(Cipher.DECRYPT_MODE, key, iv, aad)
         val buffer = ByteArray(CHUNK)
         var total = 0L
         try {
             while (true) {
+                checkCancelled()
                 val n = input.read(buffer)
                 if (n < 0) break
                 if (n == 0) continue
@@ -92,6 +106,25 @@ object BackupCrypto {
         }
         return total
     }
+
+    /** counts 的 HMAC-SHA256;和 AAD 一样由口令派生出的密钥认证,防止预览页的数字被改。 */
+    fun countsMac(key: SecretKey, counts: Map<String, Long>): ByteArray {
+        val mac = try {
+            Mac.getInstance("HmacSHA256")
+        } catch (e: java.security.GeneralSecurityException) {
+            throw BackupException(BackupError.Unsupported, "HMAC is unavailable", e)
+        }
+        mac.init(SecretKeySpec(key.encoded ?: ByteArray(0), "HmacSHA256"))
+        return mac.doFinal(BackupManifest.countsCanonical(counts).toByteArray(Charsets.UTF_8))
+    }
+
+    fun countsMacBase64(key: SecretKey, counts: Map<String, Long>): String =
+        Base64.getEncoder().encodeToString(countsMac(key, counts))
+
+    fun verifyCountsMac(key: SecretKey, counts: Map<String, Long>, encoded: String): Boolean =
+        runCatching {
+            MessageDigest.isEqual(countsMac(key, counts), Base64.getDecoder().decode(encoded))
+        }.getOrDefault(false)
 
     fun sha256(file: File): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")

@@ -47,6 +47,8 @@ data class BackupManifest(
     val aad: String = BackupFormat.AAD_PREFIX,
     val sections: List<String>,
     val counts: Map<String, Long> = emptyMap(),
+    /** counts 的 HMAC-SHA256(base64);空表示旧包没有这一项。 */
+    val countsMac: String = "",
     val payload: BackupPayload,
 ) {
     /** AES-GCM 的附加认证数据;导入时按包里的字段重算,不直接用文件里的 `aad` 字段。 */
@@ -93,6 +95,14 @@ data class BackupManifest(
         if (payload.sha256.length != 64 || payload.sha256.any { it !in "0123456789abcdef" }) {
             throw BackupException(BackupError.Corrupt, "bad payload checksum")
         }
+        if (countsMac.isNotEmpty()) {
+            val mac = try {
+                Base64.getDecoder().decode(countsMac)
+            } catch (e: IllegalArgumentException) {
+                throw BackupException(BackupError.Corrupt, "bad counts MAC", e)
+            }
+            if (mac.size != 32) throw BackupException(BackupError.Corrupt, "bad counts MAC length")
+        }
         return this
     }
 
@@ -105,6 +115,10 @@ data class BackupManifest(
 
         fun aadString(format: Int, appVersion: String, exportedAt: String, sections: List<String>): String =
             "${BackupFormat.AAD_PREFIX}|$format|$appVersion|$exportedAt|${sections.sorted().joinToString(",")}"
+
+        /** counts 的规范化文本;排序后逐行 `key=value`,用于 HMAC。 */
+        fun countsCanonical(counts: Map<String, Long>): String =
+            counts.toSortedMap().entries.joinToString("\n") { (k, v) -> "$k=$v" }
 
         fun decode(bytes: ByteArray): BackupManifest = try {
             json.decodeFromString(serializer(), bytes.toString(Charsets.UTF_8))

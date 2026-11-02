@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">解包中…</string>
     <string name="backup_progress_restoring">恢复中…</string>
     <string name="backup_progress_done">完成</string>
+    <string name="backup_error_unreadable">有些数据读不出,备份没有生成</string>
+    <string name="backup_export_warnings">以下项目没有导出:%1$s</string>
+    <string name="backup_report_warnings_count">有 %1$d 项与备份清单不一致</string>
+    <string name="backup_preview_counts_unverified">清单里的条数会在恢复时核对。</string>
 </resources>

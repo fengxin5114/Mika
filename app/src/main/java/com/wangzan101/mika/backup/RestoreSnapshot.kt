@@ -1,7 +1,7 @@
 package com.wangzan101.mika.backup
 
-import android.content.Context
-import com.wangzan101.mika.settings.FeatureFlags
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.nio.file.Files
 import java.text.SimpleDateFormat
@@ -14,11 +14,12 @@ import java.util.Locale
  * 快照只覆盖非工作区分类;工作区勾选时才包含 `sandbox/work`。`runs/`、`sandbox/rootfs` 从不进快照。
  */
 class RestoreSnapshot(
-    private val context: Context,
+    private val filesDir: File,
     val dir: File,
     private val includeWorkspace: Boolean,
+    private val featurePrefs: BackupPrefs,
+    private val languagePrefs: BackupPrefs,
 ) {
-    private val filesDir: File = context.filesDir
     private val paths: List<String> = buildList {
         add("settings")
         add("conversations")
@@ -35,8 +36,6 @@ class RestoreSnapshot(
         add("web/sites.json")
         if (includeWorkspace) add("sandbox/work")
     }
-
-    constructor(context: Context, includeWorkspace: Boolean) : this(context, newDir(context.filesDir), includeWorkspace)
 
     fun save() {
         dir.mkdirs()
@@ -58,24 +57,18 @@ class RestoreSnapshot(
     }
 
     private fun writePrefs() {
-        val feature = context.getSharedPreferences(FeatureFlags.PREFS, Context.MODE_PRIVATE)
-        File(dir, PREFS_FEATURE).writeText(PrefsJson.export(feature).toString())
-        val language = context.getSharedPreferences(PrefsJson.LANGUAGE_PREFS, Context.MODE_PRIVATE)
-        File(dir, PREFS_LANGUAGE).writeText(PrefsJson.exportLanguage(language).toString())
+        File(dir, PREFS_FEATURE).writeText(PrefsJson.export(featurePrefs).toString())
+        File(dir, PREFS_LANGUAGE).writeText(PrefsJson.exportLanguage(languagePrefs).toString())
     }
 
     private fun restorePrefs() {
-        val feature = context.getSharedPreferences(FeatureFlags.PREFS, Context.MODE_PRIVATE)
         runCatching {
-            val json = kotlinx.serialization.json.Json.parseToJsonElement(File(dir, PREFS_FEATURE).readText())
-                as kotlinx.serialization.json.JsonObject
-            PrefsJson.replace(feature, json)
+            val json = Json.parseToJsonElement(File(dir, PREFS_FEATURE).readText()) as JsonObject
+            PrefsJson.replace(featurePrefs, json)
         }
-        val language = context.getSharedPreferences(PrefsJson.LANGUAGE_PREFS, Context.MODE_PRIVATE)
         runCatching {
-            val json = kotlinx.serialization.json.Json.parseToJsonElement(File(dir, PREFS_LANGUAGE).readText())
-                as kotlinx.serialization.json.JsonObject
-            PrefsJson.replaceLanguage(language, json)
+            val json = Json.parseToJsonElement(File(dir, PREFS_LANGUAGE).readText()) as JsonObject
+            PrefsJson.replaceLanguage(languagePrefs, json)
         }
     }
 

@@ -7,6 +7,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.zip.CRC32
@@ -22,11 +23,16 @@ data class ExtractedEntry(val name: String, val file: File, val bytes: Long)
  * 所有路径在写入和读出时都校验,防止 zip slip、重复条目和解压炸弹。
  */
 object BackupArchive {
+    /** 写 zip 到任意输出流(流式加密时用);不在这里关闭/删除 [out]。 */
+    fun writeZip(out: OutputStream, block: (ZipWriter) -> Unit) {
+        ZipOutputStream(BufferedOutputStream(out)).use { zip -> block(ZipWriter(zip)) }
+    }
+
     /** 写 zip;失败时删掉没写完的文件。 */
     fun writeZip(file: File, block: (ZipWriter) -> Unit) {
         file.parentFile?.mkdirs()
         try {
-            ZipOutputStream(BufferedOutputStream(FileOutputStream(file))).use { zip -> block(ZipWriter(zip)) }
+            FileOutputStream(file).use { out -> writeZip(out, block) }
         } catch (t: Throwable) {
             file.delete()
             throw t
@@ -49,14 +55,14 @@ object BackupArchive {
     }
 
     /** 把 payload.bin 原样取到 [dest],返回字节数。校验 CRC 和大小。 */
-    fun extractPayload(file: File, dest: File): Long = open(file).use { zip ->
+    fun extractPayload(file: File, dest: File, checkCancelled: () -> Unit = {}): Long = open(file).use { zip ->
         val entry = zip.getEntry(BackupFormat.PAYLOAD_ENTRY)
             ?: throw BackupException(BackupError.NotMikaBackup, "payload.bin is missing")
-        copyEntry(zip, entry, dest, limit = BackupFormat.MAX_ENTRY_BYTES)
+        copyEntry(zip, entry, dest, limit = BackupFormat.MAX_ENTRY_BYTES, checkCancelled = checkCancelled)
     }
 
     /** 解出内层 zip 的全部文件到 [destDir];返回写出的文件。 */
-    fun extractAll(file: File, destDir: File): List<ExtractedEntry> = open(file).use { zip ->
+    fun extractAll(file: File, destDir: File, checkCancelled: () -> Unit = {}): List<ExtractedEntry> = open(file).use { zip ->
         val root = destDir.canonicalFile
         if (!root.isDirectory && !root.mkdirs()) throw IOException("cannot create ${root.path}")
         val rootPrefix = root.path + File.separator
@@ -66,6 +72,7 @@ object BackupArchive {
         var count = 0
         val entries = zip.entries()
         while (entries.hasMoreElements()) {
+            checkCancelled()
             val entry = entries.nextElement()
             if (entry.isDirectory || entry.name.endsWith('/')) continue
             if (++count > BackupFormat.MAX_ENTRIES) throw BackupException(BackupError.TooLarge, "too many entries")
@@ -85,7 +92,7 @@ object BackupArchive {
             target.parentFile?.mkdirs()
             val tmp = File(target.parentFile, target.name + ".part")
             try {
-                copyEntry(zip, entry, tmp, limit = BackupFormat.MAX_ENTRY_BYTES)
+                copyEntry(zip, entry, tmp, limit = BackupFormat.MAX_ENTRY_BYTES, checkCancelled = checkCancelled)
                 Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
             } catch (t: Throwable) {
                 tmp.delete()
@@ -115,7 +122,7 @@ object BackupArchive {
         return raw
     }
 
-    private fun copyEntry(zip: ZipFile, entry: ZipEntry, dest: File, limit: Long): Long {
+    private fun copyEntry(zip: ZipFile, entry: ZipEntry, dest: File, limit: Long, checkCancelled: () -> Unit): Long {
         dest.parentFile?.mkdirs()
         val crc = CRC32()
         var total = 0L
@@ -123,6 +130,7 @@ object BackupArchive {
             FileOutputStream(dest).use { output ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
+                    checkCancelled()
                     val n = input.read(buffer)
                     if (n < 0) break
                     total += n

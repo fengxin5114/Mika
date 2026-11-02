@@ -1,6 +1,5 @@
 package com.wangzan101.mika.backup
 
-import android.content.SharedPreferences
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -26,45 +25,41 @@ object PrefsJson {
         "capsule_card_height", "speech_choice",
     )
 
-    fun export(prefs: SharedPreferences): JsonObject = buildJsonObject {
+    fun export(prefs: BackupPrefs): JsonObject = buildJsonObject {
+        val all = prefs.all()
         for (key in FEATURE_KEYS) {
-            val value = prefs.all[key] ?: continue
+            val value = all[key] ?: continue
             val json = valueOf(value) ?: continue
             put(key, json)
         }
     }
 
     /** 只补目标里没有的键;用户当前选过的一律保留。 */
-    fun applyMissing(prefs: SharedPreferences, json: JsonObject) {
-        val edit = prefs.edit()
+    fun applyMissing(prefs: BackupPrefs, json: JsonObject) {
         for ((key, value) in json) {
             if (key !in FEATURE_KEYS || prefs.contains(key)) continue
-            putValue(edit, key, value)
+            prefs.put(key, valueOf(value))
         }
-        edit.commit()
     }
 
     /** 撤销导入时用:先把白名单键全部去掉,再按快照写回。 */
-    fun replace(prefs: SharedPreferences, json: JsonObject) {
-        val edit = prefs.edit()
-        for (key in FEATURE_KEYS) edit.remove(key)
-        for ((key, value) in json) if (key in FEATURE_KEYS) putValue(edit, key, value)
-        edit.commit()
+    fun replace(prefs: BackupPrefs, json: JsonObject) {
+        for (key in FEATURE_KEYS) prefs.remove(key)
+        for ((key, value) in json) if (key in FEATURE_KEYS) prefs.put(key, valueOf(value))
     }
 
-    fun exportLanguage(prefs: SharedPreferences): JsonObject = buildJsonObject {
-        prefs.getString(LANGUAGE_TAG, null)?.let { put(LANGUAGE_TAG, it) }
+    fun exportLanguage(prefs: BackupPrefs): JsonObject = buildJsonObject {
+        prefs.all()[LANGUAGE_TAG]?.let { put(LANGUAGE_TAG, it.toString()) }
     }
 
-    fun applyLanguageMissing(prefs: SharedPreferences, json: JsonObject) {
+    fun applyLanguageMissing(prefs: BackupPrefs, json: JsonObject) {
         if (prefs.contains(LANGUAGE_TAG)) return
-        json[LANGUAGE_TAG]?.let { prefs.edit().putString(LANGUAGE_TAG, it.toStringValue()).commit() }
+        json[LANGUAGE_TAG]?.let { prefs.put(LANGUAGE_TAG, it.toStringValue()) }
     }
 
-    fun replaceLanguage(prefs: SharedPreferences, json: JsonObject) {
-        val edit = prefs.edit().remove(LANGUAGE_TAG)
-        json[LANGUAGE_TAG]?.let { edit.putString(LANGUAGE_TAG, it.toStringValue()) }
-        edit.commit()
+    fun replaceLanguage(prefs: BackupPrefs, json: JsonObject) {
+        prefs.remove(LANGUAGE_TAG)
+        json[LANGUAGE_TAG]?.let { prefs.put(LANGUAGE_TAG, it.toStringValue()) }
     }
 
     private fun JsonElement.toStringValue(): String =
@@ -80,18 +75,17 @@ object PrefsJson {
         else -> null
     }
 
-    private fun putValue(edit: SharedPreferences.Editor, key: String, value: JsonElement) {
-        if (value is JsonArray) {
-            edit.putStringSet(key, value.mapNotNull { (it as? JsonPrimitive)?.content }.toSet())
-            return
-        }
-        val primitive = value as? JsonPrimitive ?: return
-        when {
-            primitive.isString -> edit.putString(key, primitive.content)
-            primitive.booleanOrNull != null -> edit.putBoolean(key, primitive.booleanOrNull!!)
-            primitive.intOrNull != null -> edit.putInt(key, primitive.intOrNull!!)
-            primitive.longOrNull != null -> edit.putLong(key, primitive.longOrNull!!)
-            primitive.doubleOrNull != null -> edit.putFloat(key, primitive.doubleOrNull!!.toFloat())
+    /** 把 JSON 还原成 SharedPreferences 能放的类型。 */
+    private fun valueOf(value: JsonElement): Any? {
+        if (value is JsonArray) return value.mapNotNull { (it as? JsonPrimitive)?.content }.toSet()
+        val primitive = value as? JsonPrimitive ?: return null
+        return when {
+            primitive.isString -> primitive.content
+            primitive.booleanOrNull != null -> primitive.booleanOrNull
+            primitive.intOrNull != null -> primitive.intOrNull
+            primitive.longOrNull != null -> primitive.longOrNull
+            primitive.doubleOrNull != null -> primitive.doubleOrNull!!.toFloat()
+            else -> null
         }
     }
 }
