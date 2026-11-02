@@ -12,6 +12,7 @@ class BackupManifestTest {
         salt: ByteArray = ByteArray(16) { 1 },
         iv: ByteArray = ByteArray(12) { 2 },
         sections: List<String> = listOf(BackupFormat.SETTINGS, BackupFormat.CONVERSATIONS),
+        countsMac: String = "",
     ) = BackupManifest(
         format = format,
         appVersion = "0.1.33",
@@ -20,6 +21,7 @@ class BackupManifestTest {
         cipher = BackupCipher(iv = Base64.getEncoder().encodeToString(iv)),
         sections = sections,
         counts = mapOf("conversations" to 42L),
+        countsMac = countsMac,
         payload = BackupPayload(bytes = 100, sha256 = "a".repeat(64)),
     )
 
@@ -65,6 +67,15 @@ class BackupManifestTest {
     fun iterationsOutOfRangeRejected() {
         val failure = runCatching { manifest(iterations = 10).validate() }.exceptionOrNull()
         assertTrue(failure is BackupException && failure.code == BackupError.Unsupported)
+    }
+
+    @Test
+    fun badCountsMacRejected() {
+        val failure = runCatching { manifest(countsMac = "not-base64").validate() }.exceptionOrNull()
+        assertTrue(failure is BackupException && failure.code == BackupError.Corrupt)
+        val short = runCatching { manifest(countsMac = Base64.getEncoder().encodeToString(ByteArray(8))).validate() }.exceptionOrNull()
+        assertTrue(short is BackupException && short.code == BackupError.Corrupt)
+        manifest(countsMac = Base64.getEncoder().encodeToString(ByteArray(32))).validate()
     }
 
     @Test
