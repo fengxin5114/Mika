@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 设置里能进入的子页面;[Home] 是设置首页。 */
-private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats }
+private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, Backup }
 
 /**
  * 设置页:总状态卡 + 基本 / 隐私与数据 / 高级 / 关于四组。各子页面在这里切换(返回键先回首页),
@@ -177,6 +177,7 @@ fun SettingsScreen(
             onOpenNotifications = { notificationsFrom = SettingsPage.Home; page = SettingsPage.Notifications },
             language = language, onOpenLanguage = { page = SettingsPage.Language },
             onOpenMemory = onOpenMemory,
+            onOpenBackup = { page = SettingsPage.Backup },
             webSitesCount = webSites?.sites?.size, onOpenWebSites = { page = SettingsPage.WebSites },
             sandbox = sandboxStatus, onOpenSandbox = { page = SettingsPage.Sandbox },
             routes = routeCount, onOpenRoutes = { page = SettingsPage.Routes },
@@ -186,6 +187,7 @@ fun SettingsScreen(
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
+        SettingsPage.Backup -> BackupScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
         SettingsPage.PhoneOps -> PhoneOpsScreen(
             status, androidRelease, onProblem,
@@ -285,6 +287,7 @@ fun SettingsContent(
     language: AppLanguage = AppLanguage.System,
     onOpenLanguage: () -> Unit = {},
     onOpenMemory: (() -> Unit)? = null,
+    onOpenBackup: (() -> Unit)? = null,
     webSitesCount: Int? = null,
     onOpenWebSites: () -> Unit = {},
     sandbox: SandboxStatus? = null,
@@ -346,7 +349,7 @@ fun SettingsContent(
             }
         }
 
-        val privacyRows = onOpenMemory != null || webSitesCount != null
+        val privacyRows = onOpenMemory != null || onOpenBackup != null || webSitesCount != null
         if (privacyRows) {
             GroupLabel(stringResource(R.string.settings_privacy))
             GroupCard {
@@ -354,6 +357,9 @@ fun SettingsContent(
                 fun take(): Boolean = first.also { first = false }
                 onOpenMemory?.let {
                     ListRow(MikaIcons.Heart, stringResource(R.string.memory_and_skills), stringResource(R.string.settings_memory_sub), first = take(), onClick = it) { RowChevron() }
+                }
+                onOpenBackup?.let {
+                    ListRow(MikaIcons.Doc, stringResource(R.string.settings_backup), stringResource(R.string.settings_backup_sub), first = take(), onClick = it) { RowChevron() }
                 }
                 webSitesCount?.let {
                     ListRow(MikaIcons.Globe, stringResource(R.string.settings_web_logins), first = take(), onClick = onOpenWebSites) { RowValue(trPlural(R.plurals.settings_count_sites, it)); RowChevron() }
