@@ -2,6 +2,7 @@ package com.wangzan101.mika.core.backup
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -110,6 +111,16 @@ class BackupCryptoTest {
     fun iterationsOutOfRangeRejected() {
         val failure = runCatching { BackupCrypto.deriveKey(pass, BackupCrypto.newSalt(), 1) }.exceptionOrNull()
         assertTrue(failure is BackupException && failure.code == BackupError.Unsupported)
+    }
+
+    @Test
+    fun countsMacIsStableAndDetectsChanges() {
+        val key = BackupCrypto.deriveKey(pass, BackupCrypto.newSalt(), 100_001)
+        val counts = mapOf("conversations" to 2L, "memoryItems" to 3L)
+        val mac = BackupCrypto.countsMacBase64(key, counts)
+        assertTrue(BackupCrypto.verifyCountsMac(key, counts, mac))
+        assertFalse(BackupCrypto.verifyCountsMac(key, counts + ("memoryItems" to 4L), mac))
+        assertFalse(BackupCrypto.verifyCountsMac(key, counts, "not-base64"))
     }
 
     @Test

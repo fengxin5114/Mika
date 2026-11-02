@@ -96,6 +96,35 @@ class SecretVaultTest {
     }
 
     @Test
+    fun keepsExistingProviderKeyWhenItDiffers() {
+        val target = tmp.newFolder("target-keep")
+        File(target, "provider-keys.json").writeText("""{"p1":"${base64(cipher.encrypt("new-key".toByteArray()))}"}""")
+        val imported = kotlinx.serialization.json.buildJsonObject {
+            put("version", 1)
+            put("providers", kotlinx.serialization.json.buildJsonObject { put("p1", "old-key") })
+        }
+        val result = vault(target, { null }, {}).restore(imported)
+        assertEquals(1, result.keptExisting)
+        assertEquals(0, result.imported)
+        val keys = kotlinx.serialization.json.Json.parseToJsonElement(File(target, "provider-keys.json").readText()).jsonObject
+        assertEquals("new-key", decoded(keys["p1"]!!.jsonPrimitive.content))
+    }
+
+    @Test
+    fun importsProviderKeyWhenTargetHasNone() {
+        val target = tmp.newFolder("target-new")
+        val imported = kotlinx.serialization.json.buildJsonObject {
+            put("version", 1)
+            put("providers", kotlinx.serialization.json.buildJsonObject { put("p1", "sk-new") })
+        }
+        val result = vault(target, { null }, {}).restore(imported)
+        assertEquals(1, result.imported)
+        assertEquals(0, result.keptExisting)
+        val keys = kotlinx.serialization.json.Json.parseToJsonElement(File(target, "provider-keys.json").readText()).jsonObject
+        assertEquals("sk-new", decoded(keys["p1"]!!.jsonPrimitive.content))
+    }
+
+    @Test
     fun restoreSkipsMissingSecretsAndDoesNotTouchClipboard() {
         val target = tmp.newFolder("target2")
         File(target, "mcp-token.bin").writeBytes(cipher.encrypt("keep".toByteArray()))

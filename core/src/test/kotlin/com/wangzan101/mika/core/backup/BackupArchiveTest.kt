@@ -16,6 +16,26 @@ class BackupArchiveTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test
+    fun writesToOutputStream() {
+        val out = ByteArrayOutputStream()
+        BackupArchive.writeZip(out) { writer -> writer.addBytes("data/a.txt", "a".toByteArray()) }
+        val zip = File(tmp.root, "stream.zip").apply { writeBytes(out.toByteArray()) }
+        assertEquals(1, BackupArchive.extractAll(zip, File(tmp.root, "stream-out")).size)
+    }
+
+    @Test
+    fun cancellationStopsExtraction() {
+        val zip = File(tmp.root, "cancel.zip")
+        BackupArchive.writeZip(zip) { writer -> writer.addBytes("data/a.txt", "a".toByteArray()) }
+        val failure = runCatching {
+            BackupArchive.extractAll(zip, File(tmp.root, "cancel-out")) {
+                throw BackupException(BackupError.Cancelled, "cancelled")
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is BackupException && failure.code == BackupError.Cancelled)
+    }
+
+    @Test
     fun innerZipRoundTrip() {
         val zip = File(tmp.root, "inner.zip")
         val hello = "hello".toByteArray()
