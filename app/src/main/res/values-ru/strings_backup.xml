@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">Распаковка…</string>
     <string name="backup_progress_restoring">Восстановление…</string>
     <string name="backup_progress_done">Готово</string>
+    <string name="backup_error_unreadable">Не удалось прочитать часть данных; копия не создана</string>
+    <string name="backup_export_warnings">Эти элементы не были экспортированы: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d элементов не совпадают с манифестом копии</string>
+    <string name="backup_preview_counts_unverified">Эти счётчики будут проверены при восстановлении.</string>
 </resources>

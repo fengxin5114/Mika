@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">Membongkar…</string>
     <string name="backup_progress_restoring">Memulihkan…</string>
     <string name="backup_progress_done">Selesai</string>
+    <string name="backup_error_unreadable">Sebagian data tidak dapat dibaca; cadangan tidak dibuat</string>
+    <string name="backup_export_warnings">Item berikut tidak diekspor: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d item tidak cocok dengan manifes cadangan</string>
+    <string name="backup_preview_counts_unverified">Jumlah ini akan diperiksa saat memulihkan.</string>
 </resources>

@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">Descompactando…</string>
     <string name="backup_progress_restoring">Restaurando…</string>
     <string name="backup_progress_done">Concluído</string>
+    <string name="backup_error_unreadable">Não foi possível ler alguns dados; o backup não foi criado</string>
+    <string name="backup_export_warnings">Estes itens não foram exportados: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d itens não coincidem com o manifesto do backup</string>
+    <string name="backup_preview_counts_unverified">Estas contagens serão verificadas na restauração.</string>
 </resources>

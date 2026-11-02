@@ -19,6 +19,13 @@ import java.util.Base64
 
 data class SecretExport(val json: JsonObject, val unavailable: List<String>)
 
+/** 密钥回写的结果:导入了多少、因为目标已有不同值而保留了多少、写不进去的项。 */
+data class SecretRestoreResult(
+    val unavailable: List<String> = emptyList(),
+    val imported: Int = 0,
+    val keptExisting: Int = 0,
+)
+
 /**
  * 把散在各把 Keystore 别名下的秘密集中解密成 `secrets.json`(明文只在加密包里出现),导入时再逐项写回目标设备。
  *
@@ -77,23 +84,44 @@ class SecretVault(
     }
 
     /**
-     * 把 `secrets.json` 写回目标设备。已有的值按 id / 名称合并,导入的胜出;文件里没有的秘密保持原样。
-     * @return 写不进去的项(别名或 id),界面在报告里提示。
+     * 把 `secrets.json` 写回目标设备。文件里没有的秘密保持原样。
+     *
+     * 服务商 Key 的规则:目标已经有同一服务商、且值和备份不同时保留目标现有的(避免半年前的旧 Key
+     * 把用户后来轮换的 Key 盖掉),只有目标没有或值相同才写入。其它 token / 凭据仍以导入为准。
+     *
+     * @return 写不进去的项,以及导入 / 保留的计数。
      */
-    fun restore(json: JsonObject): List<String> {
+    fun restore(json: JsonObject): SecretRestoreResult {
         val unavailable = mutableListOf<String>()
+        var imported = 0
+        var keptExisting = 0
 
-        val imported = json["providers"]?.jsonObject
-        if (imported != null && imported.isNotEmpty()) {
+        val importedProviders = json["providers"]?.jsonObject
+        if (importedProviders != null && importedProviders.isNotEmpty()) {
             val merged = LinkedHashMap<String, String>()
             val existing = runCatching {
                 Json.parseToJsonElement(File(settingsDir, PROVIDER_KEYS_FILE).readText()).jsonObject
             }.getOrNull()
             existing?.forEach { (id, value) -> merged[id] = value.jsonPrimitive.content }
-            for ((id, value) in imported) {
+
+            val existingPlain = LinkedHashMap<String, String>()
+            existing?.forEach { (id, value) ->
                 runCatching {
-                    val plain = value.jsonPrimitive.content
+                    val encrypted = Base64.getDecoder().decode(value.jsonPrimitive.content)
+                    String(cipherFor(PROVIDER_ALIAS).decrypt(encrypted), Charsets.UTF_8)
+                }.onSuccess { existingPlain[id] = it }
+            }
+
+            for ((id, value) in importedProviders) {
+                val plain = value.jsonPrimitive.content
+                val old = existingPlain[id]
+                if (old != null && old != plain) {
+                    keptExisting++
+                    continue
+                }
+                runCatching {
                     merged[id] = Base64.getEncoder().encodeToString(cipherFor(PROVIDER_ALIAS).encrypt(plain.toByteArray(Charsets.UTF_8)))
+                    imported++
                 }.onFailure { unavailable += "provider:$id" }
             }
             runCatching {
@@ -114,7 +142,7 @@ class SecretVault(
                 speechPut(Base64.getEncoder().encodeToString(encrypted))
             }.onFailure { unavailable += "speech" }
         }
-        return unavailable
+        return SecretRestoreResult(unavailable, imported, keptExisting)
     }
 
     /** 当前有没有可撤销的语音凭据;只用于判断,不返回秘密本身。 */

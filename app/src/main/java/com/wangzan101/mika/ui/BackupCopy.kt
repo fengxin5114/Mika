@@ -26,6 +26,7 @@ object BackupCopy {
         BackupError.NotMikaBackup -> R.string.backup_error_not_mika
         BackupError.NewerFormat -> R.string.backup_error_newer
         BackupError.Corrupt -> R.string.backup_error_corrupt
+        BackupError.UnreadableData -> R.string.backup_error_unreadable
         BackupError.BadPassphrase -> R.string.backup_error_passphrase
         BackupError.TooLarge -> R.string.backup_error_too_large
         BackupError.UnsafePath -> R.string.backup_error_unsafe

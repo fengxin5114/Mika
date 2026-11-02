@@ -50,6 +50,39 @@ object BackupFormat {
     val ALL_SECTIONS = listOf(SETTINGS, SECRETS, CONVERSATIONS, MEMORY, SKILLS, KNOWLEDGE, AUTOMATION, WEB, WORKSPACE)
 
     val DEFAULT_SECTIONS = listOf(SETTINGS, SECRETS, CONVERSATIONS, MEMORY, SKILLS, KNOWLEDGE, AUTOMATION, WEB)
+
+    /**
+     * manifest 里的计数键。口径统一成「条目数」,工作区体积单独放在 [COUNT_WORKSPACE_BYTES]。
+     * 导入时按这些键逐项对账;`countsMac` 用同一份规范化字符串认证。
+     */
+    const val COUNT_SETTINGS_FILES = "settingsFiles"
+    const val COUNT_PREFS_FEATURE_KEYS = "prefsFeatureKeys"
+    const val COUNT_PREFS_LANGUAGE = "prefsLanguage"
+    const val COUNT_PROVIDER_KEYS = "providerKeys"
+    const val COUNT_SECRET_ITEMS = "secretItems"
+    const val COUNT_CONVERSATIONS = "conversations"
+    const val COUNT_MEMORY_ITEMS = "memoryItems"
+    const val COUNT_PROFILE_ENTRIES = "profileEntries"
+    const val COUNT_PERSONAL_SKILLS = "personalSkills"
+    const val COUNT_PENDING_SKILLS = "pendingSkills"
+    const val COUNT_SKILL_ARCHIVES = "skillArchives"
+    const val COUNT_KNOWLEDGE_DRAFTS = "knowledgeDrafts"
+    const val COUNT_KNOWLEDGE_NOTES = "knowledgeNotes"
+    const val COUNT_TRIGGERS = "triggers"
+    const val COUNT_TRIGGER_WINDOWS = "triggerWindows"
+    const val COUNT_ROUTES = "routes"
+    const val COUNT_APPROVALS = "approvals"
+    const val COUNT_APP_ACCESS = "appAccess"
+    const val COUNT_WEB_SITES = "webSites"
+    const val COUNT_WORKSPACE_FILES = "workspaceFiles"
+    const val COUNT_WORKSPACE_BYTES = "workspaceBytes"
+
+    val COUNTS = listOf(
+        COUNT_SETTINGS_FILES, COUNT_PREFS_FEATURE_KEYS, COUNT_PREFS_LANGUAGE, COUNT_PROVIDER_KEYS, COUNT_SECRET_ITEMS,
+        COUNT_CONVERSATIONS, COUNT_MEMORY_ITEMS, COUNT_PROFILE_ENTRIES, COUNT_PERSONAL_SKILLS, COUNT_PENDING_SKILLS,
+        COUNT_SKILL_ARCHIVES, COUNT_KNOWLEDGE_DRAFTS, COUNT_KNOWLEDGE_NOTES, COUNT_TRIGGERS, COUNT_TRIGGER_WINDOWS,
+        COUNT_ROUTES, COUNT_APPROVALS, COUNT_APP_ACCESS, COUNT_WEB_SITES, COUNT_WORKSPACE_FILES, COUNT_WORKSPACE_BYTES,
+    )
 }
 
 /** 备份失败的类型。界面按它取一句人话,不要拿异常的文字直接给用户看。 */
@@ -62,6 +95,9 @@ enum class BackupError {
 
     /** 文件损坏、截断、CRC 不对、结构不合法。 */
     Corrupt,
+
+    /** 用户的数据本身读不出(例如记忆密钥丢了);不能带着 0 条继续导出。 */
+    UnreadableData,
 
     /** 口令不对,或密文的认证标签对不上。 */
     BadPassphrase,

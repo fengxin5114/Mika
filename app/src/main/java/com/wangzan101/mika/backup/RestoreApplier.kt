@@ -1,6 +1,5 @@
 package com.wangzan101.mika.backup
 
-import android.content.Context
 import com.wangzan101.mika.core.backup.BackupFormat
 import com.wangzan101.mika.core.backup.BackupManifest
 import com.wangzan101.mika.core.backup.ImportReport
@@ -11,13 +10,13 @@ import com.wangzan101.mika.core.memory.MemoryItem
 import com.wangzan101.mika.core.memory.ProfileEntry
 import com.wangzan101.mika.core.replay.RouteCodec
 import com.wangzan101.mika.core.trigger.TriggerDefinition
+import com.wangzan101.mika.core.trigger.TriggerSnapshot
 import com.wangzan101.mika.core.trigger.nextCalendarAt
 import com.wangzan101.mika.memory.EncryptedMemoryFile
 import com.wangzan101.mika.memory.FileProfileBackend
 import com.wangzan101.mika.replay.FileRouteStore
-import com.wangzan101.mika.settings.FeatureFlags
+import com.wangzan101.mika.settings.KeyCipher
 import com.wangzan101.mika.settings.KeystoreKeyCipher
-import com.wangzan101.mika.task.TriggerRuntime
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -28,7 +27,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -43,29 +41,35 @@ import java.nio.file.StandardCopyOption
  *
  * 安全相关的分类([BackupFormat.AUTOMATION] 里的审批与 App 访问、[BackupFormat.WEB])按「更严格的一方保留」合并,
  * 恢复不会放宽用户当前设下的限制。
+ *
+ * 依赖从构造参数来(filesDir / 偏好设置 / 定时任务 / 记忆密钥),JVM 测试用临时目录直接跑。
  */
 class RestoreApplier(
-    private val context: Context,
+    private val filesDir: File,
     private val extracted: File,
     private val manifest: BackupManifest,
     private val vault: SecretVault,
+    private val featurePrefs: BackupPrefs,
+    private val languagePrefs: BackupPrefs,
+    private val triggers: BackupTriggers,
+    private val memoryCipher: KeyCipher = KeystoreKeyCipher("mika-memory"),
     private val report: ImportReportBuilder = ImportReportBuilder(),
+    private val checkCancelled: () -> Unit = {},
 ) {
-    private val filesDir: File = context.filesDir
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private data class Counts(var added: Int = 0, var replaced: Int = 0, var kept: Int = 0)
 
     fun apply(): ImportReport {
-        if (has(BackupFormat.SETTINGS)) applySettings()
-        if (has(BackupFormat.SECRETS)) applySecrets()
-        if (has(BackupFormat.CONVERSATIONS)) applyConversations()
-        if (has(BackupFormat.MEMORY)) applyMemory()
-        if (has(BackupFormat.SKILLS)) applySkills()
-        if (has(BackupFormat.KNOWLEDGE)) applyKnowledge()
-        if (has(BackupFormat.AUTOMATION)) applyAutomation()
-        if (has(BackupFormat.WEB)) applyWeb()
-        if (has(BackupFormat.WORKSPACE)) applyWorkspace()
+        if (has(BackupFormat.SETTINGS)) { checkCancelled(); applySettings() }
+        if (has(BackupFormat.SECRETS)) { checkCancelled(); applySecrets() }
+        if (has(BackupFormat.CONVERSATIONS)) { checkCancelled(); applyConversations() }
+        if (has(BackupFormat.MEMORY)) { checkCancelled(); applyMemory() }
+        if (has(BackupFormat.SKILLS)) { checkCancelled(); applySkills() }
+        if (has(BackupFormat.KNOWLEDGE)) { checkCancelled(); applyKnowledge() }
+        if (has(BackupFormat.AUTOMATION)) { checkCancelled(); applyAutomation() }
+        if (has(BackupFormat.WEB)) { checkCancelled(); applyWeb() }
+        if (has(BackupFormat.WORKSPACE)) { checkCancelled(); applyWorkspace() }
         return report.build()
     }
 
@@ -102,6 +106,7 @@ class RestoreApplier(
 
         val settingsRoot = data("data/settings")
         settingsRoot.listFiles { f -> f.isFile }.orEmpty().sortedBy { it.name }.forEach { source ->
+            checkCancelled()
             val name = source.name
             if (name == "providers.json" || name.startsWith("prefs_")) return@forEach
             val target = when (name) {
@@ -116,7 +121,6 @@ class RestoreApplier(
             }
         }
 
-        val featurePrefs = context.getSharedPreferences(FeatureFlags.PREFS, Context.MODE_PRIVATE)
         data("data/settings/prefs_feature_flags.json").takeIf { it.isFile }?.let { source ->
             val imported = runCatching { json.parseToJsonElement(source.readText()).jsonObject }.getOrNull()
             if (imported != null) {
@@ -125,7 +129,6 @@ class RestoreApplier(
                 PrefsJson.applyMissing(featurePrefs, imported)
             }
         }
-        val languagePrefs = context.getSharedPreferences(PrefsJson.LANGUAGE_PREFS, Context.MODE_PRIVATE)
         data("data/settings/prefs_app_language.json").takeIf { it.isFile }?.let { source ->
             val imported = runCatching { json.parseToJsonElement(source.readText()).jsonObject }.getOrNull()
             if (imported != null) {
@@ -203,12 +206,15 @@ class RestoreApplier(
             report.warn("secrets")
             return
         }
-        val unavailable = vault.restore(secrets)
-        unavailable.forEach(report::unavailable)
-        val providers = (secrets["providers"] as? JsonObject)?.size ?: 0
-        val rest = listOf("mcpToken", "relay", "netProxy", "deviceAccess", "speechDoubao").count { secrets.containsKey(it) }
-        report.add(BackupFormat.SECRETS, added = providers + rest,
-            note = unavailable.takeIf { it.isNotEmpty() }?.joinToString(","))
+        val result = vault.restore(secrets)
+        result.unavailable.forEach(report::unavailable)
+        val other = listOf("mcpToken", "relay", "netProxy", "deviceAccess", "speechDoubao").count { secrets.containsKey(it) }
+        report.add(
+            BackupFormat.SECRETS,
+            added = result.imported + other,
+            kept = result.keptExisting,
+            note = result.unavailable.takeIf { it.isNotEmpty() }?.joinToString(","),
+        )
     }
 
     // ---------- 对话 ----------
@@ -220,6 +226,7 @@ class RestoreApplier(
         val source = data("data/conversations")
         val targetDir = File(filesDir, "conversations")
         source.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }.forEach { sourceJson ->
+            checkCancelled()
             val id = sourceJson.name.removeSuffix(".json")
             val target = File(targetDir, sourceJson.name)
             val existed = target.exists()
@@ -241,8 +248,7 @@ class RestoreApplier(
     // ---------- 记忆 ----------
 
     private fun applyMemory() {
-        val cipher = KeystoreKeyCipher("mika-memory")
-        val file = EncryptedMemoryFile(filesDir, cipher, System::currentTimeMillis)
+        val file = EncryptedMemoryFile(filesDir, memoryCipher, System::currentTimeMillis)
         val itemsSource = data("data/memory/items.json")
         if (itemsSource.isFile) {
             val imported = runCatching { json.decodeFromString(ListSerializer(MemoryItem.serializer()), itemsSource.readText()) }.getOrNull()
@@ -271,7 +277,7 @@ class RestoreApplier(
         }
         val profileSource = data("data/memory/profile.json")
         if (profileSource.isFile) {
-            val backend = FileProfileBackend(File(filesDir, "memory/profile.bin"), cipher)
+            val backend = FileProfileBackend(File(filesDir, "memory/profile.bin"), memoryCipher)
             val imported = runCatching { json.decodeFromString(ListSerializer(ProfileEntry.serializer()), profileSource.readText()) }.getOrNull()
             val existing = runCatching { backend.read() }.getOrElse { emptyList() }
             if (imported != null) {
@@ -302,6 +308,7 @@ class RestoreApplier(
         val target = File(filesDir, "skills")
 
         File(source, "personal").listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.name }.forEach { dir ->
+            checkCancelled()
             val dst = File(target, "personal/${dir.name}")
             val newer = File(dir, "meta.json").lastModified() > File(dst, "meta.json").lastModified()
             if (!dst.exists()) {
@@ -350,15 +357,19 @@ class RestoreApplier(
     private fun applyTriggers() {
         val source = data("data/automation/triggers.json")
         if (!source.isFile) return
-        val imported = runCatching { json.decodeFromString(ListSerializer(TriggerDefinition.serializer()), source.readText()) }.getOrNull()
-            ?: return
-        val existing = TriggerRuntime.list(context).map { it.id }.toHashSet()
+        val importedSnapshot = parseTriggerSnapshot(source) ?: return
+        val existing = triggers.snapshot()
+        val existingIds = existing.triggers.map { it.id }.toHashSet()
         val now = System.currentTimeMillis()
+        val mergedTriggers = existing.triggers.toMutableList()
+        val mergedWindows = existing.windows.toMutableList()
+        val windowKeys = mergedWindows.map { it.key }.toHashSet()
         var added = 0
         var kept = 0
         var skipped = 0
-        imported.forEach { trigger ->
-            if (trigger.id in existing) {
+        importedSnapshot.triggers.forEach { trigger ->
+            checkCancelled()
+            if (trigger.id in existingIds) {
                 kept++
                 return@forEach
             }
@@ -366,6 +377,7 @@ class RestoreApplier(
             val calendarZone = trigger.calendarZone
             val interval = trigger.intervalMs
             val next = when {
+                !trigger.enabled -> maxOf(trigger.nextAtMs, now)
                 calendarTime != null && calendarZone != null ->
                     runCatching { nextCalendarAt(calendarTime, calendarZone, trigger.calendarDays, now) }.getOrNull()
                 interval != null -> now + interval
@@ -376,21 +388,32 @@ class RestoreApplier(
                 skipped++
                 return@forEach
             }
-            runCatching { TriggerRuntime.schedule(context, trigger.copy(nextAtMs = next)) }
-                .onSuccess { added++ }
-                .onFailure { skipped++ }
+            mergedTriggers += trigger.copy(nextAtMs = next)
+            importedSnapshot.windows.filter { it.triggerId == trigger.id }.forEach { window ->
+                if (windowKeys.add(window.key)) mergedWindows += window
+            }
+            added++
         }
+        if (added > 0) triggers.restore(TriggerSnapshot(mergedTriggers, mergedWindows))
         report.add(BackupFormat.AUTOMATION, added, kept = kept, skipped = skipped, note = "triggers")
+    }
+
+    private fun parseTriggerSnapshot(file: File): TriggerSnapshot? {
+        val text = runCatching { file.readText() }.getOrNull() ?: return null
+        runCatching { json.decodeFromString(TriggerSnapshot.serializer(), text) }.getOrNull()?.let { return it }
+        val list = runCatching { json.decodeFromString(ListSerializer(TriggerDefinition.serializer()), text) }.getOrNull()
+        return list?.let { TriggerSnapshot(it, emptyList()) }
     }
 
     private fun applyRoutes() {
         val source = data("data/automation/routes")
         if (!source.isDirectory) return
-        val existing = FileRouteStore.create(context).all().map { it.id }.toHashSet()
+        val existing = FileRouteStore(File(filesDir, "routes")).all().map { it.id }.toHashSet()
         val target = File(filesDir, "routes")
         var added = 0
         var kept = 0
         source.walkTopDown().filter { it.isFile && it.name.endsWith(".json") }.forEach { file ->
+            checkCancelled()
             val route = runCatching { RouteCodec.decode(file.readText()) }.getOrNull()
             if (route == null) {
                 report.warn("route")
@@ -475,8 +498,12 @@ class RestoreApplier(
             val host = o["host"]?.jsonPrimitive?.contentOrNull ?: return@forEach
             val old = byHost[host]
             val last = maxOf(old?.get("lastVisitMs")?.jsonPrimitive?.longOrNull ?: 0L, o["lastVisitMs"]?.jsonPrimitive?.longOrNull ?: 0L)
+            // 以已有对象/导入对象为底,只覆盖这三个键;challengedAt / challenge 保留
+            val base = old ?: o
             byHost[host] = buildJsonObject {
-                put("host", host); put("lastVisitMs", last)
+                base.forEach { (k, v) -> if (k !in setOf("host", "lastVisitMs", "loggedIn")) put(k, v) }
+                put("host", host)
+                put("lastVisitMs", last)
                 // Cookie 不随包走,恢复后一律当作未登录
                 put("loggedIn", false)
             }
@@ -495,6 +522,7 @@ class RestoreApplier(
         var bytes = 0L
         val target = File(filesDir, "sandbox/work")
         source.walkTopDown().onEnter { it == source || !Files.isSymbolicLink(it.toPath()) }.forEach { f ->
+            checkCancelled()
             if (!f.isFile || Files.isSymbolicLink(f.toPath())) return@forEach
             val rel = source.toPath().relativize(f.toPath()).toString().replace(File.separatorChar, '/')
             val dst = File(target, rel)
@@ -532,6 +560,7 @@ class RestoreApplier(
     }
 
     private fun copyTree(source: File, target: File) {
+        checkCancelled()
         if (Files.isSymbolicLink(source.toPath())) return
         if (source.isDirectory) {
             target.mkdirs()
@@ -546,6 +575,7 @@ class RestoreApplier(
         if (!source.exists()) return 0
         var n = 0
         source.walkTopDown().onEnter { it == source || !Files.isSymbolicLink(it.toPath()) }.forEach { f ->
+            checkCancelled()
             if (!f.isFile || Files.isSymbolicLink(f.toPath())) return@forEach
             val rel = source.toPath().relativize(f.toPath()).toString().replace(File.separatorChar, '/')
             val dst = File(target, rel)

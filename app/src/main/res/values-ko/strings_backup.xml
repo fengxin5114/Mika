@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">푸는 중…</string>
     <string name="backup_progress_restoring">복원 중…</string>
     <string name="backup_progress_done">완료</string>
+    <string name="backup_error_unreadable">일부 데이터를 읽을 수 없어 백업을 만들지 않았습니다</string>
+    <string name="backup_export_warnings">다음 항목은 내보내지 않았습니다: %1$s</string>
+    <string name="backup_report_warnings_count">%1$d개 항목이 백업 목록과 일치하지 않습니다</string>
+    <string name="backup_preview_counts_unverified">이 개수는 복원할 때 확인됩니다.</string>
 </resources>

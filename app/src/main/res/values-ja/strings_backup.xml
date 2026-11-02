@@ -62,4 +62,8 @@
     <string name="backup_progress_extracting">展開中…</string>
     <string name="backup_progress_restoring">復元中…</string>
     <string name="backup_progress_done">完了</string>
+    <string name="backup_error_unreadable">一部のデータを読み出せなかったため、バックアップは作成されませんでした</string>
+    <string name="backup_export_warnings">次の項目は書き出されませんでした:%1$s</string>
+    <string name="backup_report_warnings_count">%1$d 件がバックアップの内容と一致しません</string>
+    <string name="backup_preview_counts_unverified">この件数は復元時に確認されます。</string>
 </resources>
