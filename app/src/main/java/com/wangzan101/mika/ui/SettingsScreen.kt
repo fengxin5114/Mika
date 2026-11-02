@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 设置里能进入的子页面;[Home] 是设置首页,[Advanced] 集中放置连接、维护和工程能力。 */
-private enum class SettingsPage { Home, Advanced, AppAccess, SmsLogin, PhoneOps, Calls, Wechat, DuringWork, AppPace, Capsule, Language, Notifications, Recommendations, Sandbox, Plugins, EnvVars, Recovery, SelfCheck, ComputerAccess, McpServers, Root, Developer, DeviceDirectories, RunStats, Proactive }
+private enum class SettingsPage { Home, Advanced, AppAccess, SmsLogin, PhoneOps, Calls, Wechat, DuringWork, AppPace, Capsule, Language, Notifications, Recommendations, Sandbox, Plugins, EnvVars, Recovery, SelfCheck, ComputerAccess, McpServers, Root, Developer, DeviceDirectories, RunStats, Proactive, Backup }
 
 /**
  * 设置页:总状态卡 + 常用 / 我的数据 / 其他。高级与其他只增加一层,各子页返回来时的页面。
@@ -236,6 +236,7 @@ fun SettingsScreen(
             onOpenFiles = onOpenFiles,
             onOpenPersonal = onOpenPersonal,
             onOpenPlans = onOpenPlans,
+            onOpenBackup = { page = SettingsPage.Backup },
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
         )
         SettingsPage.Advanced -> AdvancedSettingsContent(
@@ -256,6 +257,7 @@ fun SettingsScreen(
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.SmsLogin -> SmsLoginSettingsScreen(onBack = toHome)
         SettingsPage.Wechat -> WechatSettingsScreen(wechat, onBack = toHome)
+        SettingsPage.Backup -> BackupScreen(onBack = toHome)
         SettingsPage.PhoneOps -> PhoneOpsScreen(
             status, androidRelease, onProblem,
             onRepair = { onFix(Fix.RepairPhoneHelper) }, onUnpair = { onFix(Fix.UnpairPhoneHelper) }, onBack = toHome,
@@ -445,6 +447,7 @@ fun SettingsContent(
     onOpenFiles: () -> Unit = {},
     onOpenPersonal: () -> Unit = {},
     onOpenPlans: () -> Unit = {},
+    onOpenBackup: (() -> Unit)? = null,
     versionName: String = "",
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
@@ -515,14 +518,17 @@ fun SettingsContent(
             onOpenMemory?.let {
                 ListRow(MikaIcons.Heart, stringResource(R.string.memory_and_skills), stringResource(R.string.settings_memory_sub), first = true, onClick = it) { RowChevron() }
             }
+            onOpenBackup?.let {
+                ListRow(MikaIcons.Doc, stringResource(R.string.settings_backup), stringResource(R.string.settings_backup_sub), first = onOpenMemory == null, onClick = it) { RowChevron() }
+            }
             onOpenPersonas?.let {
-                ListRow(MikaIcons.Spark, stringResource(R.string.persona_title), stringResource(R.string.persona_sub), first = onOpenMemory == null, onClick = it) { RowChevron() }
+                ListRow(MikaIcons.Spark, stringResource(R.string.persona_title), stringResource(R.string.persona_sub), first = onOpenMemory == null && onOpenBackup == null, onClick = it) { RowChevron() }
             }
             ListRow(
                 MikaIcons.Archive,
                 stringResource(R.string.settings_auto_archive),
                 stringResource(R.string.settings_auto_archive_sub),
-                first = onOpenMemory == null && onOpenPersonas == null,
+                first = onOpenMemory == null && onOpenBackup == null && onOpenPersonas == null,
                 onClick = onOpenAutoArchive,
             ) {
                 RowValue(
